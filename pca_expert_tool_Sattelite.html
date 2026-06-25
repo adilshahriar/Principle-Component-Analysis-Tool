@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Satellite Image PCA — Pixel-Based Analysis</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f5f4f0;
+      --color-background-tertiary: #eeede8;
+      --color-text-primary: #1a1a1a;
+      --color-text-secondary: #6b6a65;
+      --color-border-tertiary: rgba(0,0,0,0.12);
+      --color-border-secondary: rgba(0,0,0,0.25);
+      --color-border-primary: rgba(0,0,0,0.35);
+      --font-sans: system-ui, -apple-system, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-background-primary: #1e1e1e;
+        --color-background-secondary: #2a2a2a;
+        --color-background-tertiary: #242424;
+        --color-text-primary: #e8e8e6;
+        --color-text-secondary: #9a9994;
+        --color-border-tertiary: rgba(255,255,255,0.10);
+        --color-border-secondary: rgba(255,255,255,0.20);
+        --color-border-primary: rgba(255,255,255,0.30);
+      }
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-background-tertiary);
+      color: var(--color-text-primary);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 740px;
+      margin: 0 auto;
+      background: var(--color-background-primary);
+      border-radius: 12px;
+      border: 0.5px solid var(--color-border-tertiary);
+      padding: 1.5rem 1.75rem 2rem;
+    }
+
+    h1 { font-size: 22px; font-weight: 500; margin-bottom: 2px; }
+    .subtitle { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 1.5rem; }
+
+    .sensor-badge {
+      display: inline-block; font-size: 11px; font-weight: 500;
+      padding: 2px 10px; border-radius: 8px;
+      background: #EEEDFE; color: #3C3489; margin-left: 10px; vertical-align: middle;
+    }
+    @media (prefers-color-scheme: dark) {
+      .sensor-badge { background: #26215C; color: #AFA9EC; }
+    }
+
+    .pca-tabs {
+      display: flex; gap: 0; margin-bottom: 1.5rem;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      overflow-x: auto;
+    }
+    .pca-tab {
+      padding: 8px 16px; font-size: 13px; cursor: pointer;
+      border: none; background: transparent;
+      color: var(--color-text-secondary);
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      font-family: var(--font-sans); white-space: nowrap;
+    }
+    .pca-tab.active { color: var(--color-text-primary); border-bottom-color: #534AB7; font-weight: 500; }
+
+    .pca-panel { display: none; }
+    .pca-panel.active { display: block; }
+
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .metric-card {
+      flex: 1; min-width: 110px;
+      background: var(--color-background-secondary);
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .metric-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+    .metric-val { font-size: 22px; font-weight: 500; }
+
+    .ctrl-row { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+    .ctrl-label { font-size: 13px; color: var(--color-text-secondary); min-width: 110px; }
+    .ctrl-val { font-size: 13px; font-weight: 500; min-width: 36px; }
+
+    .section-title {
+      font-size: 11px; font-weight: 500; color: var(--color-text-secondary);
+      margin: 1.4rem 0 8px; text-transform: uppercase; letter-spacing: .06em;
+    }
+
+    .dataset-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1rem; }
+    .ds-btn {
+      padding: 6px 14px; font-size: 13px;
+      border-radius: 8px; border: 0.5px solid var(--color-border-secondary);
+      background: var(--color-background-primary);
+      color: var(--color-text-secondary); cursor: pointer; font-family: var(--font-sans);
+    }
+    .ds-btn.active, .ds-btn:hover {
+      background: var(--color-background-secondary);
+      color: var(--color-text-primary); border-color: var(--color-border-primary);
+    }
+
+    select {
+      font-size: 13px; padding: 5px 10px; border-radius: 8px;
+      border: 0.5px solid var(--color-border-secondary);
+      background: var(--color-background-primary);
+      color: var(--color-text-primary); font-family: var(--font-sans);
+    }
+    input[type="range"] { flex: 1; accent-color: #534AB7; }
+    input[type="checkbox"] { accent-color: #534AB7; width: 14px; height: 14px; }
+
+    table { width: 100%; font-size: 12px; border-collapse: collapse; }
+    th { text-align: left; padding: 6px 8px; color: var(--color-text-secondary); font-weight: 500; border-bottom: 0.5px solid var(--color-border-tertiary); }
+    td { padding: 5px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 500; }
+    .badge-hi { background: #EEEDFE; color: #3C3489; }
+    .badge-lo { background: #FAECE7; color: #712B13; }
+    @media (prefers-color-scheme: dark) {
+      .badge-hi { background: #26215C; color: #AFA9EC; }
+      .badge-lo { background: #4A1B0C; color: #F0997B; }
+    }
+
+    .loadings-grid { display: grid; gap: 7px; }
+    .loading-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .loading-bar-wrap { flex: 1; height: 8px; background: var(--color-background-secondary); border-radius: 4px; overflow: hidden; }
+    .loading-bar { height: 100%; border-radius: 4px; transition: width .3s; }
+    .bar-pos { background: #534AB7; }
+    .bar-neg { background: #D85A30; }
+    .feat-name { min-width: 80px; color: var(--color-text-secondary); font-size: 12px; }
+    .feat-val { min-width: 52px; text-align: right; font-size: 12px; }
+
+    .interp-card {
+      margin-top: 1.2rem; padding: 12px 14px;
+      border-radius: 8px; border-left: 3px solid #534AB7;
+      background: var(--color-background-secondary);
+      font-size: 13px; line-height: 1.6; color: var(--color-text-secondary);
+    }
+    .interp-card strong { color: var(--color-text-primary); font-weight: 500; }
+
+    canvas { display: block; }
+    #biplot-canvas, #corr-canvas, #heatmap-canvas {
+      width: 100%; border-radius: 8px;
+      border: 0.5px solid var(--color-border-tertiary);
+      background: var(--color-background-primary);
+    }
+
+    .scree-wrap { position: relative; height: 220px; margin-bottom: 8px; }
+
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .legend-sq { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
+
+    .tip { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.6; }
+
+    .wavelength-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .wl-chip {
+      font-size: 10px; padding: 2px 8px; border-radius: 999px;
+      background: var(--color-background-secondary);
+      color: var(--color-text-secondary); border: 0.5px solid var(--color-border-tertiary);
+    }
+
+    .about-card {
+      padding: 14px 16px; border-radius: 8px;
+      border: 0.5px solid var(--color-border-tertiary);
+      font-size: 13px; line-height: 1.8; color: var(--color-text-secondary);
+      margin-top: 1rem;
+    }
+    .about-card strong { color: var(--color-text-primary); font-weight: 500; }
+
+    footer { text-align: center; margin-top: 2rem; font-size: 12px; color: var(--color-text-secondary); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Satellite Image PCA <span class="sensor-badge" id="sensor-label">Landsat 8 OLI</span></h1>
+  <p class="subtitle">Pixel-based multi-band spectral analysis — decorrelation, land cover separation, dimensionality reduction</p>
+
+  <div class="pca-tabs">
+    <button class="pca-tab active" onclick="switchTab('overview',this)">Overview</button>
+    <button class="pca-tab" onclick="switchTab('biplot',this)">Biplot</button>
+    <button class="pca-tab" onclick="switchTab('loadings',this)">Loadings</button>
+    <button class="pca-tab" onclick="switchTab('correlation',this)">Band correlation</button>
+    <button class="pca-tab" onclick="switchTab('data',this)">Settings</button>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div id="tab-overview" class="pca-panel active">
+    <div class="section-title">Dataset</div>
+    <div class="dataset-btns">
+      <button class="ds-btn active" onclick="loadDataset('landsat8',this)">Landsat 8 (7 bands)</button>
+      <button class="ds-btn" onclick="loadDataset('sentinel2',this)">Sentinel-2 (7 bands)</button>
+      <button class="ds-btn" onclick="loadDataset('indices',this)">Spectral indices (7)</button>
+    </div>
+    <div id="wavelength-row" class="wavelength-row"></div>
+    <div class="row" id="metric-cards" style="margin-bottom:1.5rem;"></div>
+    <div class="section-title">Scree plot — explained variance per component</div>
+    <div class="scree-wrap">
+      <canvas id="scree-canvas" role="img" aria-label="Scree plot showing explained variance per principal component"></canvas>
+    </div>
+    <div class="legend" id="scree-legend"></div>
+    <div class="section-title">Cumulative variance table</div>
+    <div id="variance-table"></div>
+  </div>
+
+  <!-- BIPLOT -->
+  <div id="tab-biplot" class="pca-panel">
+    <div class="ctrl-row">
+      <span class="ctrl-label">X axis</span>
+      <select id="pcx" onchange="renderBiplot()">
+        <option value="0">PC1</option><option value="1">PC2</option><option value="2">PC3</option>
+        <option value="3">PC4</option><option value="4">PC5</option>
+      </select>
+      <span class="ctrl-label" style="margin-left:8px;">Y axis</span>
+      <select id="pcy" onchange="renderBiplot()">
+        <option value="0">PC1</option><option value="1" selected>PC2</option><option value="2">PC3</option>
+        <option value="3">PC4</option><option value="4">PC5</option>
+      </select>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">Arrow scale</span>
+      <input type="range" min="1" max="6" step="1" value="3" id="arrow-scale"
+        oninput="document.getElementById('as-val').textContent=this.value; renderBiplot();" />
+      <span class="ctrl-val" id="as-val">3</span>
+    </div>
+    <canvas id="biplot-canvas" height="390"
+      role="img" aria-label="PCA biplot — pixel scores by land cover class with band loading arrows"></canvas>
+    <div class="legend" id="biplot-legend" style="margin-top:8px;"></div>
+    <p class="tip">Points = pixels coloured by land cover class. Arrows = band/index loading vectors — arrow direction and length show how much each band drives separation along each PC.</p>
+  </div>
+
+  <!-- LOADINGS -->
+  <div id="tab-loadings" class="pca-panel">
+    <div class="ctrl-row">
+      <span class="ctrl-label">Component</span>
+      <select id="loading-pc" onchange="renderLoadings()">
+        <option value="0">PC1</option><option value="1">PC2</option><option value="2">PC3</option>
+        <option value="3">PC4</option><option value="4">PC5</option><option value="5">PC6</option>
+        <option value="6">PC7</option>
+      </select>
+    </div>
+    <div class="section-title">Band / index weights (eigenvector)</div>
+    <div id="loadings-list"></div>
+    <div id="pc-interpretation"></div>
+    <div class="section-title">Loadings heatmap — all components</div>
+    <canvas id="heatmap-canvas" role="img" aria-label="Loadings heatmap across all components and bands"></canvas>
+    <p class="tip" style="margin-top:8px;">
+      <span class="legend-sq" style="background:#534AB7;"></span> positive loading &nbsp;
+      <span class="legend-sq" style="background:#D85A30;"></span> negative loading — intensity = magnitude.
+    </p>
+  </div>
+
+  <!-- BAND CORRELATION -->
+  <div id="tab-correlation" class="pca-panel">
+    <p class="tip" style="margin-bottom:12px;">
+      Pearson correlation matrix between bands/indices across all pixels.
+      High inter-band correlation (values near ±1) indicates spectral redundancy — PCA removes this redundancy
+      and concentrates information into fewer uncorrelated components.
+    </p>
+    <canvas id="corr-canvas" role="img" aria-label="Pearson correlation matrix between spectral bands"></canvas>
+    <div class="legend" style="margin-top:8px;">
+      <span><span class="legend-sq" style="background:#534AB7;"></span> strong positive</span>
+      <span><span class="legend-sq" style="background:#D85A30;"></span> strong negative</span>
+      <span><span class="legend-sq" style="background:rgba(128,128,128,0.15);"></span> diagonal (self)</span>
+    </div>
+    <div id="corr-summary" style="margin-top:1rem; font-size:13px; color:var(--color-text-secondary); line-height:1.7;"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="tab-data" class="pca-panel">
+    <div class="section-title">Preprocessing</div>
+    <div class="ctrl-row">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="standardize" checked onchange="recompute()" />
+        Standardise bands (z-score) — required when bands have different scales or units
+      </label>
+    </div>
+    <div class="section-title">Components to retain</div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">Components</span>
+      <input type="range" min="1" max="6" step="1" value="3" id="n-components"
+        oninput="document.getElementById('nc-val').textContent=this.value; recompute();" />
+      <span class="ctrl-val" id="nc-val">3</span>
+    </div>
+    <div class="section-title">Sample pixels (first 8 rows)</div>
+    <div id="data-preview"></div>
+    <div class="about-card" style="margin-top:1.5rem;">
+      <strong>Why PCA for satellite imagery?</strong><br>
+      Multispectral bands are often highly correlated (especially adjacent bands). PCA decorrelates them,
+      concentrating most variance into the first 2–3 components. Common uses:<br>
+      &bull; <strong>Feature compression</strong> for classification (fewer inputs, less noise)<br>
+      &bull; <strong>Change detection</strong> — differences in PC space highlight change<br>
+      &bull; <strong>Visualisation</strong> — PC1/PC2/PC3 as RGB gives more contrast than any 3 raw bands<br>
+      &bull; <strong>Noise isolation</strong> — last PCs carry mostly sensor noise<br>
+      PC1 ≈ Brightness, PC2 ≈ Greenness, PC3 ≈ Wetness (similar to <em>Tasseled Cap</em> transform).
+    </div>
+  </div>
+</div>
+
+<footer>Satellite Image PCA &mdash; pixel-based spectral analysis &mdash; built with Chart.js &amp; vanilla JS</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+function rn(mu, sd) {
+  let u = 0, v = 0;
+  while (!u) u = Math.random();
+  while (!v) v = Math.random();
+  return mu + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function genLandsat8() {
+  const rows = [];
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.045,0.008),0.02,0.10),clamp(rn(0.072,0.012),0.03,0.15),clamp(rn(0.110,0.018),0.05,0.20),clamp(rn(0.050,0.010),0.02,0.12),clamp(rn(0.430,0.060),0.25,0.62),clamp(rn(0.180,0.030),0.08,0.28),clamp(rn(0.085,0.018),0.03,0.15),0]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.095,0.020),0.04,0.18),clamp(rn(0.110,0.022),0.05,0.20),clamp(rn(0.092,0.018),0.04,0.16),clamp(rn(0.032,0.012),0.01,0.08),clamp(rn(0.012,0.008),0.001,0.04),clamp(rn(0.006,0.004),0.001,0.02),clamp(rn(0.003,0.002),0.001,0.01),1]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.145,0.025),0.07,0.22),clamp(rn(0.175,0.030),0.09,0.26),clamp(rn(0.215,0.035),0.12,0.32),clamp(rn(0.245,0.040),0.14,0.36),clamp(rn(0.268,0.042),0.15,0.38),clamp(rn(0.290,0.045),0.16,0.42),clamp(rn(0.245,0.040),0.13,0.36),2]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.112,0.020),0.06,0.18),clamp(rn(0.138,0.025),0.07,0.22),clamp(rn(0.192,0.030),0.10,0.28),clamp(rn(0.215,0.035),0.12,0.32),clamp(rn(0.285,0.040),0.18,0.38),clamp(rn(0.335,0.045),0.20,0.44),clamp(rn(0.288,0.040),0.17,0.40),3]);
+  return rows;
+}
+
+function genSentinel2() {
+  const rows = [];
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.050,0.010),0.02,0.12),clamp(rn(0.090,0.015),0.04,0.16),clamp(rn(0.045,0.010),0.02,0.10),clamp(rn(0.480,0.065),0.28,0.65),clamp(rn(0.460,0.060),0.27,0.63),clamp(rn(0.170,0.028),0.08,0.26),clamp(rn(0.080,0.016),0.03,0.14),0]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.100,0.022),0.04,0.19),clamp(rn(0.100,0.020),0.04,0.18),clamp(rn(0.030,0.012),0.01,0.08),clamp(rn(0.018,0.010),0.001,0.05),clamp(rn(0.016,0.009),0.001,0.05),clamp(rn(0.005,0.003),0.001,0.02),clamp(rn(0.003,0.002),0.001,0.01),1]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.150,0.025),0.08,0.23),clamp(rn(0.190,0.032),0.10,0.28),clamp(rn(0.225,0.038),0.12,0.33),clamp(rn(0.252,0.042),0.14,0.37),clamp(rn(0.240,0.040),0.13,0.35),clamp(rn(0.272,0.044),0.15,0.40),clamp(rn(0.230,0.038),0.12,0.34),2]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.115,0.020),0.06,0.19),clamp(rn(0.172,0.028),0.09,0.25),clamp(rn(0.205,0.033),0.11,0.30),clamp(rn(0.272,0.042),0.16,0.38),clamp(rn(0.260,0.040),0.15,0.37),clamp(rn(0.315,0.048),0.18,0.44),clamp(rn(0.272,0.042),0.15,0.39),3]);
+  return rows;
+}
+
+function genIndices() {
+  const rows = [];
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.70,0.10),0.40,0.90),clamp(rn(-0.30,0.08),-0.55,-0.05),clamp(rn(-0.40,0.10),-0.65,-0.10),clamp(rn(-0.52,0.10),-0.75,-0.25),clamp(rn(0.48,0.10),0.22,0.72),clamp(rn(0.44,0.09),0.20,0.68),clamp(rn(-0.32,0.09),-0.55,-0.08),0]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(-0.18,0.08),-0.40,0.02),clamp(rn(0.55,0.10),0.28,0.80),clamp(rn(0.48,0.10),0.22,0.72),clamp(rn(-0.72,0.10),-0.92,-0.45),clamp(rn(-0.08,0.06),-0.22,0.08),clamp(rn(-0.06,0.05),-0.18,0.07),clamp(rn(0.48,0.10),0.22,0.70),1]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.10,0.07),-0.08,0.28),clamp(rn(-0.42,0.09),-0.62,-0.18),clamp(rn(-0.52,0.10),-0.72,-0.28),clamp(rn(0.28,0.09),0.06,0.50),clamp(rn(0.08,0.05),-0.04,0.20),clamp(rn(0.07,0.05),-0.04,0.19),clamp(rn(-0.48,0.09),-0.68,-0.24),2]);
+  for (let i = 0; i < 25; i++) rows.push([clamp(rn(0.18,0.07),0.02,0.35),clamp(rn(-0.38,0.09),-0.58,-0.14),clamp(rn(-0.42,0.10),-0.62,-0.16),clamp(rn(0.08,0.07),-0.08,0.26),clamp(rn(0.12,0.06),-0.02,0.26),clamp(rn(0.14,0.06),0.00,0.28),clamp(rn(0.32,0.09),0.10,0.54),3]);
+  return rows;
+}
+
+const DATASETS = {
+  landsat8: {
+    name: 'Landsat 8 OLI', sensor: 'Landsat 8/9',
+    features: ['B1 Coastal','B2 Blue','B3 Green','B4 Red','B5 NIR','B6 SWIR1','B7 SWIR2'],
+    short: ['B1','B2','B3','B4','B5','B6','B7'],
+    wavelengths: ['0.44 μm','0.48 μm','0.56 μm','0.65 μm','0.86 μm','1.61 μm','2.20 μm'],
+    classes: ['Vegetation','Water','Urban','Bare soil'],
+    colors: ['#1D9E75','#185FA5','#D85A30','#BA7517'],
+    interp: [
+      '<strong>PC1 — Brightness</strong>: all bands load positively with similar magnitude; captures overall surface albedo. Analogous to Tasseled Cap Brightness.',
+      '<strong>PC2 — Greenness</strong>: B5 NIR strongly positive, visible bands negative. Separates photosynthetically active vegetation from soil and urban surfaces.',
+      '<strong>PC3 — Wetness / Moisture</strong>: SWIR bands (B6, B7) load negatively against NIR and visible. Sensitive to soil moisture and canopy water content.',
+      '<strong>PC4</strong>: captures residual contrast between mixed or transitional pixels (e.g. sparse vegetation, shallow water).',
+      '<strong>PC5+</strong>: mostly sensor noise and atmospheric residuals — exclude in classification workflows.',
+      '<strong>PC6</strong>: very low variance — dominated by noise.',
+      '<strong>PC7</strong>: last component — pure noise (variance ≈ 0 after standardisation).'
+    ],
+    data: genLandsat8()
+  },
+  sentinel2: {
+    name: 'Sentinel-2 MSI', sensor: 'Sentinel-2 A/B',
+    features: ['B2 Blue','B3 Green','B4 Red','B8 NIR','B8A Red-edge','B11 SWIR1','B12 SWIR2'],
+    short: ['B2','B3','B4','B8','B8A','B11','B12'],
+    wavelengths: ['0.49 μm','0.56 μm','0.66 μm','0.84 μm','0.87 μm','1.61 μm','2.19 μm'],
+    classes: ['Vegetation','Water','Urban','Bare soil'],
+    colors: ['#1D9E75','#185FA5','#D85A30','#BA7517'],
+    interp: [
+      '<strong>PC1 — Brightness</strong>: positive loadings across all bands; represents total surface reflectance and albedo.',
+      '<strong>PC2 — Vegetation contrast</strong>: B8 NIR and B8A Red-edge strongly positive vs. B4 Red negative. Best land/water separator and vegetation detector.',
+      '<strong>PC3 — SWIR contrast</strong>: B11/B12 SWIR negative vs. visible/NIR positive; separates wet from dry surfaces and detects burn scars.',
+      '<strong>PC4</strong>: Red-edge (B8A) contrast against NIR (B8) — subtle vegetation structure differences.',
+      '<strong>PC5+</strong>: residual variance from mixed pixels, atmospheric effects, and sensor noise.',
+      '<strong>PC6</strong>: very low variance — predominantly noise.',
+      '<strong>PC7</strong>: last component — discard in most workflows.'
+    ],
+    data: genSentinel2()
+  },
+  indices: {
+    name: 'Spectral Indices', sensor: 'Derived from bands',
+    features: ['NDVI','NDWI','MNDWI','NDBI','EVI','SAVI','BSI'],
+    short: ['NDVI','NDWI','MNDWI','NDBI','EVI','SAVI','BSI'],
+    wavelengths: ['veg.','water','mod.water','built-up','enh.veg','soil-adj','bare soil'],
+    classes: ['Vegetation','Water','Urban','Bare soil'],
+    colors: ['#1D9E75','#185FA5','#D85A30','#BA7517'],
+    interp: [
+      '<strong>PC1 — Water vs. land</strong>: NDWI/MNDWI positive, NDVI/EVI/SAVI negative; primary gradient separates water bodies from all land cover types.',
+      '<strong>PC2 — Vegetation vs. built-up</strong>: NDVI/EVI/SAVI positive vs. NDBI/BSI negative; identifies vegetated areas against urban and bare surfaces.',
+      '<strong>PC3 — Soil type contrast</strong>: BSI vs. SAVI contrast; distinguishes bare soil from sparsely vegetated or cropland surfaces.',
+      '<strong>PC4</strong>: NDWI vs. MNDWI contrast; separates turbid or shallow water from clear open water.',
+      '<strong>PC5+</strong>: minor residual variance — mixed pixels and index computation artefacts.',
+      '<strong>PC6</strong>: near-zero variance — noise.',
+      '<strong>PC7</strong>: last component — discard.'
+    ],
+    data: genIndices()
+  }
+};
+
+let state = { dsKey: 'landsat8', scores: [], eigenvectors: [], eigenvalues: [], nComp: 3, standardize: true };
+let screeChart = null;
+
+function mean(arr) { return arr.reduce((a,b)=>a+b,0)/arr.length; }
+function std(arr, m) { const mn=m??mean(arr); return Math.sqrt(arr.reduce((s,x)=>s+(x-mn)**2,0)/arr.length)||1; }
+function transpose(M) { return M[0].map((_,j)=>M.map(r=>r[j])); }
+
+function covMatrix(X) {
+  const n=X.length, p=X[0].length;
+  const mu=Array.from({length:p},(_,j)=>mean(X.map(r=>r[j])));
+  return Array.from({length:p},(_,i)=>Array.from({length:p},(_,j)=>
+    X.reduce((s,r)=>s+(r[i]-mu[i])*(r[j]-mu[j]),0)/(n-1)
+  ));
+}
+
+function jacobiEigen(C) {
+  const n=C.length;
+  let A=C.map(r=>[...r]);
+  let V=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>i===j?1:0));
+  for(let iter=0;iter<300;iter++){
+    let max=0,p2=0,q2=1;
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) if(Math.abs(A[i][j])>max){max=Math.abs(A[i][j]);p2=i;q2=j;}
+    if(max<1e-10) break;
+    const diff=A[q2][q2]-A[p2][p2];
+    const t=diff===0?1:(Math.sign(A[p2][q2])*2*Math.abs(A[p2][q2])/(Math.abs(diff)+Math.sqrt(diff*diff+4*A[p2][q2]**2)));
+    const c=1/Math.sqrt(1+t*t),s=t*c;
+    for(let i=0;i<n;i++){const ai=A[i][p2],aj=A[i][q2];A[i][p2]=c*ai-s*aj;A[i][q2]=s*ai+c*aj;}
+    for(let i=0;i<n;i++){const ai=A[p2][i],aj=A[q2][i];A[p2][i]=c*ai-s*aj;A[q2][i]=s*ai+c*aj;}
+    A[p2][q2]=0;A[q2][p2]=0;
+    for(let i=0;i<n;i++){const vi=V[i][p2],vj=V[i][q2];V[i][p2]=c*vi-s*vj;V[i][q2]=s*vi+c*vj;}
+  }
+  const eigs=A.map((r,i)=>({val:r[i],vec:V.map(r2=>r2[i])}));
+  eigs.sort((a,b)=>b.val-a.val);
+  return {values:eigs.map(e=>Math.max(0,e.val)),vectors:eigs.map(e=>e.vec)};
+}
+
+function runPCA(dsKey, standardize) {
+  const ds=DATASETS[dsKey];
+  const p=ds.features.length;
+  let X=ds.data.map(r=>r.slice(0,p));
+  const mu=Array.from({length:p},(_,j)=>mean(X.map(r=>r[j])));
+  const sd=Array.from({length:p},(_,j)=>std(X.map(r=>r[j]),mu[j]));
+  X=X.map(r=>r.map((v,j)=>standardize?(v-mu[j])/sd[j]:(v-mu[j])));
+  const {values,vectors}=jacobiEigen(covMatrix(transpose(X)));
+  return {scores:X.map(row=>vectors.map(v=>v.reduce((s,vi,j)=>s+vi*row[j],0))),eigenvectors:vectors,eigenvalues:values};
+}
+
+function recompute() {
+  state.standardize=document.getElementById('standardize').checked;
+  state.nComp=parseInt(document.getElementById('n-components').value);
+  const res=runPCA(state.dsKey,state.standardize);
+  state.scores=res.scores; state.eigenvectors=res.eigenvectors; state.eigenvalues=res.eigenvalues;
+  renderAll();
+}
+
+function loadDataset(key,btn) {
+  state.dsKey=key;
+  document.querySelectorAll('.ds-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  document.getElementById('sensor-label').textContent=DATASETS[key].sensor;
+  recompute();
+}
+
+function renderWavelengths() {
+  const ds=DATASETS[state.dsKey];
+  document.getElementById('wavelength-row').innerHTML=
+    ds.features.map((f,i)=>`<span class="wl-chip">${f} &nbsp; <em>${ds.wavelengths[i]}</em></span>`).join('');
+}
+
+function renderMetricCards() {
+  const ds=DATASETS[state.dsKey];
+  const total=state.eigenvalues.reduce((a,b)=>a+b,0);
+  const ev1=(state.eigenvalues[0]/total*100).toFixed(1);
+  const ev12=((state.eigenvalues[0]+state.eigenvalues[1])/total*100).toFixed(1);
+  document.getElementById('metric-cards').innerHTML=`
+    <div class="metric-card"><div class="metric-label">Pixels (simulated)</div><div class="metric-val">${ds.data.length}</div></div>
+    <div class="metric-card"><div class="metric-label">Bands / indices</div><div class="metric-val">${ds.features.length}</div></div>
+    <div class="metric-card"><div class="metric-label">PC1 variance</div><div class="metric-val">${ev1}%</div></div>
+    <div class="metric-card"><div class="metric-label">PC1+PC2 variance</div><div class="metric-val">${ev12}%</div></div>
+  `;
+}
+
+function renderScree() {
+  const total=state.eigenvalues.reduce((a,b)=>a+b,0);
+  const evPct=state.eigenvalues.map(v=>+(v/total*100).toFixed(2));
+  let cum=0;
+  const cumPct=evPct.map(v=>{cum+=v;return+cum.toFixed(2);});
+  const labels=state.eigenvalues.map((_,i)=>`PC${i+1}`);
+  const canvas=document.getElementById('scree-canvas');
+  if(screeChart) screeChart.destroy();
+  screeChart=new Chart(canvas,{
+    data:{labels,datasets:[
+      {type:'bar',label:'Variance %',data:evPct,backgroundColor:'#AFA9EC',borderRadius:4,yAxisID:'y'},
+      {type:'line',label:'Cumulative %',data:cumPct,borderColor:'#D85A30',backgroundColor:'transparent',tension:.3,pointRadius:4,pointBackgroundColor:'#D85A30',borderDash:[4,3],yAxisID:'y'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{y:{min:0,max:100,grid:{color:'rgba(128,128,128,0.1)'},ticks:{callback:v=>v+'%',font:{size:11}}},
+              x:{ticks:{font:{size:11}},grid:{display:false}}}}
+  });
+  document.getElementById('scree-legend').innerHTML=`
+    <span><span class="legend-sq" style="background:#AFA9EC;"></span> Variance per component</span>
+    <span><span style="display:inline-block;width:22px;border-top:2px dashed #D85A30;margin-bottom:2px;"></span> Cumulative</span>
+    <span style="color:var(--color-text-secondary);">Elbow or Kaiser (λ≥1) to choose cutoff</span>
+  `;
+}
+
+function renderVarianceTable() {
+  const total=state.eigenvalues.reduce((a,b)=>a+b,0);
+  let cum=0;
+  const rows=state.eigenvalues.map((ev,i)=>{
+    const pct=ev/total*100; cum+=pct;
+    const badge=pct>=15?`<span class="badge badge-hi">${pct.toFixed(1)}%</span>`:`<span class="badge badge-lo">${pct.toFixed(1)}%</span>`;
+    return `<tr><td>PC${i+1}</td><td>${ev.toFixed(3)}</td><td>${badge}</td><td>${cum.toFixed(1)}%</td><td>${ev>=1?'&#10003;':'&ndash;'}</td></tr>`;
+  }).join('');
+  document.getElementById('variance-table').innerHTML=`<table>
+    <tr><th>Component</th><th>Eigenvalue</th><th>Variance</th><th>Cumulative</th><th>Kaiser (&lambda;&ge;1)</th></tr>
+    ${rows}</table>`;
+}
+
+function renderBiplot() {
+  const canvas=document.getElementById('biplot-canvas');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.offsetWidth||660;
+  canvas.width=W; canvas.height=390;
+  ctx.clearRect(0,0,W,390);
+  const pcx=parseInt(document.getElementById('pcx').value);
+  const pcy=parseInt(document.getElementById('pcy').value);
+  const arrowScale=parseInt(document.getElementById('arrow-scale').value);
+  const ds=DATASETS[state.dsKey];
+  const xs=state.scores.map(r=>r[pcx]), ys=state.scores.map(r=>r[pcy]);
+  const pad=54;
+  const minX=Math.min(...xs),maxX=Math.max(...xs);
+  const minY=Math.min(...ys),maxY=Math.max(...ys);
+  const rngX=maxX-minX||1, rngY=maxY-minY||1;
+  const toC=(x,y)=>[pad+(x-minX)/rngX*(W-2*pad), 335-(y-minY)/rngY*282];
+  const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.strokeStyle=isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+  ctx.lineWidth=0.5;
+  [0.25,0.5,0.75].forEach(t=>{
+    const gx=pad+t*(W-2*pad);
+    ctx.beginPath();ctx.moveTo(gx,50);ctx.lineTo(gx,335);ctx.stroke();
+    const gy=335-t*282;
+    ctx.beginPath();ctx.moveTo(pad,gy);ctx.lineTo(W-pad,gy);ctx.stroke();
+  });
+  state.scores.forEach((r,i)=>{
+    const cls=ds.data[i][ds.features.length];
+    const [cx,cy]=toC(r[pcx],r[pcy]);
+    ctx.beginPath();ctx.arc(cx,cy,4,0,2*Math.PI);
+    ctx.fillStyle=ds.colors[cls]+'cc';ctx.fill();
+  });
+  const [cx0,cy0]=toC(0,0);
+  ds.features.forEach((feat,j)=>{
+    const lx=state.eigenvectors[pcx][j]*arrowScale*30;
+    const ly=state.eigenvectors[pcy][j]*arrowScale*30;
+    const ex=cx0+lx, ey=cy0-ly;
+    ctx.strokeStyle='#D85A30'; ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(cx0,cy0);ctx.lineTo(ex,ey);ctx.stroke();
+    const angle=Math.atan2(cy0-ey,ex-cx0);
+    ctx.fillStyle='#D85A30';
+    ctx.beginPath();ctx.moveTo(ex,ey);
+    ctx.lineTo(ex-10*Math.cos(angle-0.3),ey+10*Math.sin(angle-0.3));
+    ctx.lineTo(ex-10*Math.cos(angle+0.3),ey+10*Math.sin(angle+0.3));
+    ctx.closePath();ctx.fill();
+    ctx.fillStyle=isDark?'rgba(255,255,255,0.85)':'rgba(20,20,20,0.85)';
+    ctx.font='11px '+getComputedStyle(document.body).fontFamily;
+    ctx.textAlign='left';
+    ctx.fillText(ds.short[j], ex+(lx>0?4:-ds.short[j].length*6-4), ey+(ly<0?-5:13));
+  });
+  const total=state.eigenvalues.reduce((a,b)=>a+b,0);
+  ctx.fillStyle=isDark?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';
+  ctx.font='11px '+getComputedStyle(document.body).fontFamily;
+  ctx.textAlign='center';
+  ctx.fillText(`PC${pcx+1} (${(state.eigenvalues[pcx]/total*100).toFixed(1)}%)`,W/2,370);
+  ctx.save();ctx.translate(14,200);ctx.rotate(-Math.PI/2);
+  ctx.fillText(`PC${pcy+1} (${(state.eigenvalues[pcy]/total*100).toFixed(1)}%)`,0,0);ctx.restore();
+  document.getElementById('biplot-legend').innerHTML=
+    ds.classes.map((c,i)=>`<span><span class="legend-dot" style="background:${ds.colors[i]};"></span>${c}</span>`).join('');
+}
+
+function renderLoadings() {
+  const pc=parseInt(document.getElementById('loading-pc').value);
+  const ds=DATASETS[state.dsKey];
+  if(!state.eigenvectors.length) return;
+  const weights=ds.features.map((f,j)=>({name:f,val:state.eigenvectors[pc][j]}));
+  weights.sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
+  const maxAbs=Math.max(...weights.map(w=>Math.abs(w.val)));
+  document.getElementById('loadings-list').innerHTML=`<div class="loadings-grid">
+    ${weights.map(w=>{
+      const pct=(Math.abs(w.val)/maxAbs*100).toFixed(0);
+      return `<div class="loading-row">
+        <span class="feat-name">${w.name}</span>
+        <div class="loading-bar-wrap"><div class="loading-bar ${w.val>=0?'bar-pos':'bar-neg'}" style="width:${pct}%"></div></div>
+        <span class="feat-val">${w.val.toFixed(3)}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+  const interp=ds.interp[pc]||`PC${pc+1}: residual variance — mostly noise.`;
+  document.getElementById('pc-interpretation').innerHTML=`<div class="interp-card">${interp}</div>`;
+  renderHeatmap();
+}
+
+function renderHeatmap() {
+  const canvas=document.getElementById('heatmap-canvas');
+  const ds=DATASETS[state.dsKey];
+  const p=ds.features.length;
+  const npc=Math.min(state.eigenvalues.length,7);
+  const cW=Math.min(76,(580-110)/npc);
+  const cH=34;
+  const W2=110+npc*cW, H2=44+p*cH;
+  canvas.width=W2; canvas.height=H2; canvas.style.height=H2+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W2,H2);
+  const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.font='11px '+getComputedStyle(document.body).fontFamily;
+  for(let j=0;j<npc;j++){
+    ctx.fillStyle=isDark?'rgba(255,255,255,0.5)':'rgba(0,0,0,0.4)';
+    ctx.textAlign='center';
+    ctx.fillText(`PC${j+1}`,110+j*cW+cW/2,22);
+  }
+  ds.short.forEach((f,i)=>{
+    ctx.fillStyle=isDark?'rgba(255,255,255,0.6)':'rgba(0,0,0,0.5)';
+    ctx.textAlign='right';
+    ctx.fillText(f,104,44+i*cH+cH/2+4);
+    for(let j=0;j<npc;j++){
+      const v=state.eigenvectors[j][i];
+      const alpha=Math.abs(v)*0.88+0.06;
+      const hex=v>=0?'#534AB7':'#D85A30';
+      ctx.fillStyle=hex+(Math.round(alpha*255).toString(16).padStart(2,'0'));
+      ctx.fillRect(110+j*cW+2,44+i*cH+2,cW-4,cH-4);
+      ctx.fillStyle=Math.abs(v)>0.38?'#fff':(isDark?'rgba(255,255,255,0.7)':'rgba(0,0,0,0.6)');
+      ctx.textAlign='center';
+      ctx.fillText(v.toFixed(2),110+j*cW+cW/2,44+i*cH+cH/2+4);
+    }
+  });
+}
+
+function renderCorrelation() {
+  const ds=DATASETS[state.dsKey];
+  const p=ds.features.length;
+  const X=ds.data.map(r=>r.slice(0,p));
+  const mu=Array.from({length:p},(_,j)=>mean(X.map(r=>r[j])));
+  const sd=Array.from({length:p},(_,j)=>std(X.map(r=>r[j]),mu[j]));
+  const corr=Array.from({length:p},(_,i)=>Array.from({length:p},(_,j)=>
+    X.reduce((s,r)=>s+(r[i]-mu[i])*(r[j]-mu[j]),0)/(X.length*sd[i]*sd[j])
+  ));
+  const canvas=document.getElementById('corr-canvas');
+  const cS=Math.min(72,(580-110)/p);
+  const W2=110+p*cS, H2=50+p*cS;
+  canvas.width=W2; canvas.height=H2; canvas.style.height=H2+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W2,H2);
+  const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+  ctx.font='11px '+getComputedStyle(document.body).fontFamily;
+  ds.short.forEach((f,j)=>{
+    ctx.fillStyle=isDark?'rgba(255,255,255,0.5)':'rgba(0,0,0,0.4)';
+    ctx.textAlign='center';
+    ctx.fillText(f,110+j*cS+cS/2,25);
+  });
+  corr.forEach((row,i)=>{
+    ctx.fillStyle=isDark?'rgba(255,255,255,0.6)':'rgba(0,0,0,0.5)';
+    ctx.textAlign='right';
+    ctx.fillText(ds.short[i],102,50+i*cS+cS/2+4);
+    row.forEach((v,j)=>{
+      const bx=110+j*cS+1, by=36+i*cS+1, bw=cS-2, bh=cS-2;
+      if(i===j){
+        ctx.fillStyle=isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)';
+      } else {
+        const alpha=Math.abs(v)*0.88+0.06;
+        const hex=v>=0?'#534AB7':'#D85A30';
+        ctx.fillStyle=hex+(Math.round(alpha*255).toString(16).padStart(2,'0'));
+      }
+      ctx.fillRect(bx,by,bw,bh);
+      ctx.fillStyle=i===j?(isDark?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.3)'):
+        (Math.abs(v)>0.55?'#fff':(isDark?'rgba(255,255,255,0.7)':'rgba(0,0,0,0.6)'));
+      ctx.textAlign='center';
+      ctx.fillText(i===j?'1.00':v.toFixed(2),bx+bw/2,by+bh/2+4);
+    });
+  });
+  const allOff=[];
+  for(let i=0;i<p;i++) for(let j=i+1;j<p;j++) allOff.push(Math.abs(corr[i][j]));
+  const avgCorr=(allOff.reduce((a,b)=>a+b,0)/allOff.length).toFixed(2);
+  const maxPair=allOff.indexOf(Math.max(...allOff));
+  let cnt=0,mi=-1,mj=-1;
+  outer: for(let i=0;i<p;i++) for(let j=i+1;j<p;j++){if(cnt===maxPair){mi=i;mj=j;break outer;}cnt++;}
+  document.getElementById('corr-summary').innerHTML=`
+    Mean inter-band correlation: <strong>${avgCorr}</strong> &nbsp;&mdash;&nbsp;
+    Most correlated pair: <strong>${ds.short[mi]} &amp; ${ds.short[mj]}</strong>
+    (r = ${corr[mi][mj].toFixed(2)}).<br>
+    High correlations confirm spectral redundancy — PCA decorrelates these bands into independent components,
+    reducing inputs while preserving <strong>${((state.eigenvalues[0]+state.eigenvalues[1])/state.eigenvalues.reduce((a,b)=>a+b,0)*100).toFixed(0)}%</strong>
+    of total variance in just 2 components.
+  `;
+}
+
+function renderDataPreview() {
+  const ds=DATASETS[state.dsKey];
+  const p=ds.features.length;
+  const rows=ds.data.slice(0,8).map(r=>`<tr>
+    ${r.slice(0,p).map(v=>`<td>${(+v).toFixed(3)}</td>`).join('')}
+    <td style="color:${ds.colors[r[p]]}; font-weight:500;">${ds.classes[r[p]]}</td>
+  </tr>`).join('');
+  document.getElementById('data-preview').innerHTML=`<table>
+    <tr>${ds.short.map(f=>`<th>${f}</th>`).join('')}<th>class</th></tr>
+    ${rows}
+    <tr><td colspan="${p+1}" style="color:var(--color-text-secondary);font-style:italic;">&hellip; ${ds.data.length} total pixels</td></tr>
+  </table>`;
+}
+
+function renderAll() {
+  renderWavelengths();
+  renderMetricCards();
+  renderScree();
+  renderVarianceTable();
+  renderBiplot();
+  renderLoadings();
+  renderCorrelation();
+  renderDataPreview();
+}
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.pca-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.pca-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  if(btn) btn.classList.add('active');
+  if(id==='biplot') setTimeout(renderBiplot,50);
+  if(id==='loadings') setTimeout(renderLoadings,50);
+  if(id==='correlation') setTimeout(renderCorrelation,50);
+}
+
+window.addEventListener('load',()=>loadDataset('landsat8',document.querySelector('.ds-btn')));
+window.addEventListener('resize',()=>{
+  if(document.getElementById('tab-biplot').classList.contains('active')) renderBiplot();
+  if(document.getElementById('tab-correlation').classList.contains('active')) renderCorrelation();
+});
+</script>
+</body>
+</html>
